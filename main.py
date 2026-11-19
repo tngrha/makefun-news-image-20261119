@@ -1,13 +1,13 @@
-"""Draw a 1024x1024 newspaper front page summing up the world news of
-Thursday 19 November 2026, and write it to <MAKEFUN_OUTPUT_DIR>/entry.png.
+"""One Day in One Page - Thursday 19 November 2026.
 
-Pure Python 3.13 standard library only (struct, zlib, binascii, os):
-the grading sandbox is python:3.13-slim with no Pillow and no system
-fonts, so this file carries its own 5x7 bitmap font and its own PNG
-encoder. No network, no randomness, no timestamps anywhere in the
-image: repeat runs produce byte-identical output. Every fact below
-was verified against news reports published on 19 November 2026.
-All text is rendered UPPERCASE, newspaper style.
+A pure-stdlib Python 3.13 program that paints a 1024x1024 newspaper
+front page summing up the day's world news and writes it to
+<MAKEFUN_OUTPUT_DIR>/entry.png. No Pillow, no system fonts, no
+network: the glyphs live in a compact string table below and the PNG
+bytes are assembled by hand. The output is fully deterministic -
+same bytes on every run. Facts were verified against news reports
+published on 19 November 2026. Text is set in UPPERCASE, as a
+broadsheet would set it.
 """
 
 import binascii
@@ -15,9 +15,10 @@ import os
 import struct
 import zlib
 
-W, H = 1024, 1024
+W = 1024
+H = 1024
 
-# Palette: newsprint paper, deep navy ink, gold rule, red alert.
+# Newsprint palette.
 PAPER = (248, 244, 233)
 NAVY = (14, 40, 66)
 NAVY2 = (22, 56, 88)
@@ -34,93 +35,117 @@ TEAL = (16, 108, 108)
 GREY = (112, 118, 124)
 WHITE = (255, 255, 255)
 TILE = (255, 255, 255)
-ORANGE = (196, 96, 16)
 PURPLE = (88, 62, 140)
+BROWN = (122, 44, 44)
+OCHRE = (90, 60, 20)
+SLATE = (70, 70, 110)
 
-# ------------------------------------------------------------------ font
-# 5x7 bitmap glyphs: seven rows of five cells, '#' = ink.
-FONT = {
-    " ": (".....", ".....", ".....", ".....", ".....", ".....", "....."),
-    "!": ("..#..", "..#..", "..#..", "..#..", "..#..", ".....", "..#.."),
-    '"': (".#.#.", ".#.#.", ".#.#.", ".....", ".....", ".....", "....."),
-    "#": (".#.#.", ".#.#.", "#####", ".#.#.", "#####", ".#.#.", ".#.#."),
-    "$": ("..#..", ".####", "#.#.#", ".###.", "..#.#", "####.", "..#.."),
-    "%": ("##..#", "##.#.", "...#.", "..#..", ".#...", "#.##.", "#..##"),
-    "&": (".##..", "#..#.", "#..#.", ".#...", "#.#.#", "#..#.", ".##.#"),
-    "'": ("..#..", "..#..", "..#..", ".....", ".....", ".....", "....."),
-    "(": ("...#.", "..#..", ".#...", ".#...", ".#...", "..#..", "...#."),
-    ")": (".#...", "..#..", "...#.", "...#.", "...#.", "..#..", ".#..."),
-    "*": (".....", ".#.#.", "..#..", "#####", "..#..", ".#.#.", "....."),
-    "+": (".....", "..#..", "..#..", "#####", "..#..", "..#..", "....."),
-    ",": (".....", ".....", ".....", ".....", ".##..", ".##..", ".#..."),
-    "-": (".....", ".....", ".....", "#####", ".....", ".....", "....."),
-    ".": (".....", ".....", ".....", ".....", ".....", ".##..", ".##.."),
-    "/": ("....#", "...#.", "...#.", "..#..", ".#...", ".#...", "#...."),
-    "0": (".###.", "#...#", "#..##", "#.#.#", "##..#", "#...#", ".###."),
-    "1": ("..#..", ".##..", "..#..", "..#..", "..#..", "..#..", ".###."),
-    "2": (".###.", "#...#", "....#", "...#.", "..#..", ".#...", "#####"),
-    "3": ("####.", "....#", "....#", ".###.", "....#", "....#", "####."),
-    "4": ("...#.", "..##.", ".#.#.", "#..#.", "#####", "...#.", "...#."),
-    "5": ("#####", "#....", "####.", "....#", "....#", "#...#", ".###."),
-    "6": (".###.", "#....", "#....", "####.", "#...#", "#...#", ".###."),
-    "7": ("#####", "....#", "...#.", "...#.", "..#..", "..#..", "..#.."),
-    "8": (".###.", "#...#", "#...#", ".###.", "#...#", "#...#", ".###."),
-    "9": (".###.", "#...#", "#...#", ".####", "....#", "....#", ".###."),
-    ":": (".....", ".##..", ".##..", ".....", ".##..", ".##..", "....."),
-    ";": (".....", ".##..", ".##..", ".....", ".##..", ".##..", ".#..."),
-    "=": (".....", ".....", "#####", ".....", "#####", ".....", "....."),
-    "?": (".###.", "#...#", "....#", "...#.", "..#..", ".....", "..#.."),
-    "@": (".###.", "#...#", "#.###", "#.#.#", "#.###", "#....", ".###."),
-    "A": (".###.", "#...#", "#...#", "#####", "#...#", "#...#", "#...#"),
-    "B": ("####.", "#...#", "#...#", "####.", "#...#", "#...#", "####."),
-    "C": (".####", "#....", "#....", "#....", "#....", "#....", ".####"),
-    "D": ("####.", "#...#", "#...#", "#...#", "#...#", "#...#", "####."),
-    "E": ("#####", "#....", "#....", "####.", "#....", "#....", "#####"),
-    "F": ("#####", "#....", "#....", "####.", "#....", "#....", "#...."),
-    "G": (".####", "#....", "#....", "#.###", "#...#", "#...#", ".###."),
-    "H": ("#...#", "#...#", "#...#", "#####", "#...#", "#...#", "#...#"),
-    "I": ("#####", "..#..", "..#..", "..#..", "..#..", "..#..", "#####"),
-    "J": ("..###", "...#.", "...#.", "...#.", "...#.", "#..#.", ".##.."),
-    "K": ("#...#", "#..#.", "#.#..", "##...", "#.#..", "#..#.", "#...#"),
-    "L": ("#....", "#....", "#....", "#....", "#....", "#....", "#####"),
-    "M": ("#...#", "##.##", "#.#.#", "#.#.#", "#...#", "#...#", "#...#"),
-    "N": ("#...#", "##..#", "##..#", "#.#.#", "#..##", "#..##", "#...#"),
-    "O": (".###.", "#...#", "#...#", "#...#", "#...#", "#...#", ".###."),
-    "P": ("####.", "#...#", "#...#", "####.", "#....", "#....", "#...."),
-    "Q": (".###.", "#...#", "#...#", "#...#", "#.#.#", "#..#.", ".##.#"),
-    "R": ("####.", "#...#", "#...#", "####.", "#.#..", "#..#.", "#...#"),
-    "S": (".####", "#....", "#....", ".###.", "....#", "....#", "####."),
-    "T": ("#####", "..#..", "..#..", "..#..", "..#..", "..#..", "..#.."),
-    "U": ("#...#", "#...#", "#...#", "#...#", "#...#", "#...#", ".###."),
-    "V": ("#...#", "#...#", "#...#", "#...#", "#...#", ".#.#.", "..#.."),
-    "W": ("#...#", "#...#", "#...#", "#.#.#", "#.#.#", "##.##", "#...#"),
-    "X": ("#...#", "#...#", ".#.#.", "..#..", ".#.#.", "#...#", "#...#"),
-    "Y": ("#...#", "#...#", ".#.#.", "..#..", "..#..", "..#..", "..#.."),
-    "Z": ("#####", "....#", "...#.", "..#..", ".#...", "#....", "#####"),
-    "•": (".....", ".....", ".##..", ".##..", ".....", ".....", "....."),
-}
+# ------------------------------------------------------------------ glyphs
+# One line per glyph: the character, then its seven 5-cell rows.
+# 'SP' is the space, 'BULLET' the bullet. A parser below turns the
+# block into the table the text routines use.
+_FONT_BLOCK = """
+SP ..... ..... ..... ..... ..... ..... .....
+! ..#.. ..#.. ..#.. ..#.. ..#.. ..... ..#..
+" .#.#. .#.#. .#.#. ..... ..... ..... .....
+# .#.#. .#.#. ##### .#.#. ##### .#.#. .#.#.
+$ ..#.. .#### #.#.# .###. ..#.# ####. ..#..
+% ##..# ##.#. ...#. ..#.. .#... #.##. #..##
+& .##.. #..#. #..#. .#... #.#.# #..#. .##.#
+' ..#.. ..#.. ..#.. ..... ..... ..... .....
+( ...#. ..#.. .#... .#... .#... ..#.. ...#.
+) .#... ..#.. ...#. ...#. ...#. ..#.. .#...
+* ..... .#.#. ..#.. ##### ..#.. .#.#. .....
++ ..... ..#.. ..#.. ##### ..#.. ..#.. .....
+, ..... ..... ..... ..... .##.. .##.. .#...
+- ..... ..... ..... ##### ..... ..... .....
+. ..... ..... ..... ..... ..... .##.. .##..
+/ ....# ...#. ...#. ..#.. .#... .#... #....
+0 .###. #...# #..## #.#.# ##..# #...# .###.
+1 ..#.. .##.. ..#.. ..#.. ..#.. ..#.. .###.
+2 .###. #...# ....# ...#. ..#.. .#... #####
+3 ####. ....# ....# .###. ....# ....# ####.
+4 ...#. ..##. .#.#. #..#. ##### ...#. ...#.
+5 ##### #.... ####. ....# ....# #...# .###.
+6 .###. #.... #.... ####. #...# #...# .###.
+7 ##### ....# ...#. ...#. ..#.. ..#.. ..#..
+8 .###. #...# #...# .###. #...# #...# .###.
+9 .###. #...# #...# .#### ....# ....# .###.
+: ..... .##.. .##.. ..... .##.. .##.. .....
+; ..... .##.. .##.. ..... .##.. .##.. .#...
+= ..... ..... ##### ..... ##### ..... .....
+? .###. #...# ....# ...#. ..#.. ..... ..#..
+@ .###. #...# #.### #.#.# #.### #.... .###.
+A .###. #...# #...# ##### #...# #...# #...#
+B ####. #...# #...# ####. #...# #...# ####.
+C .#### #.... #.... #.... #.... #.... .####
+D ####. #...# #...# #...# #...# #...# ####.
+E ##### #.... #.... ####. #.... #.... #####
+F ##### #.... #.... ####. #.... #.... #....
+G .#### #.... #.... #.### #...# #...# .###.
+H #...# #...# #...# ##### #...# #...# #...#
+I ##### ..#.. ..#.. ..#.. ..#.. ..#.. #####
+J ..### ...#. ...#. ...#. ...#. #..#. .##..
+K #...# #..#. #.#.. ##... #.#.. #..#. #...#
+L #.... #.... #.... #.... #.... #.... #####
+M #...# ##.## #.#.# #.#.# #...# #...# #...#
+N #...# ##..# ##..# #.#.# #..## #..## #...#
+O .###. #...# #...# #...# #...# #...# .###.
+P ####. #...# #...# ####. #.... #.... #....
+Q .###. #...# #...# #...# #.#.# #..#. .##.#
+R ####. #...# #...# ####. #.#.. #..#. #...#
+S .#### #.... #.... .###. ....# ....# ####.
+T ##### ..#.. ..#.. ..#.. ..#.. ..#.. ..#..
+U #...# #...# #...# #...# #...# #...# .###.
+V #...# #...# #...# #...# #...# .#.#. ..#..
+W #...# #...# #...# #.#.# #.#.# ##.## #...#
+X #...# #...# .#.#. ..#.. .#.#. #...# #...#
+Y #...# #...# .#.#. ..#.. ..#.. ..#.. ..#..
+Z ##### ....# ...#. ..#.. .#... #.... #####
+BULLET ..... ..... .##.. .##.. ..... ..... .....
+"""
 
-BLANK = FONT[" "]
 
-# ------------------------------------------------------------------ pixels
+def _build_font(block):
+    table = {}
+    for line in block.strip().splitlines():
+        parts = line.split()
+        key = parts[0]
+        if key == "SP":
+            key = " "
+        elif key == "BULLET":
+            key = "•"
+        table[key] = parts[1:]
+    return table
+
+
+GLYPHS = _build_font(_FONT_BLOCK)
+EMPTY_ROWS = ["....."] * 7
+
+
+def glyph_rows(ch):
+    """The seven 5-cell rows of a glyph, blanks for unknown chars."""
+    return GLYPHS.get(ch, EMPTY_ROWS)
+
+
+# ------------------------------------------------------------------ canvas
 fb = bytearray(W * H * 3)
 
 
-def set_px(x, y, c):
+def put_px(x, y, c):
     if 0 <= x < W and 0 <= y < H:
         i = (y * W + x) * 3
-        fb[i], fb[i + 1], fb[i + 2] = c
+        fb[i] = c[0]
+        fb[i + 1] = c[1]
+        fb[i + 2] = c[2]
 
 
-def fill_rect(x, y, w, h, c):
-    x0 = x if x > 0 else 0
-    y0 = y if y > 0 else 0
-    x1 = x + w
-    if x1 > W:
-        x1 = W
-    y1 = y + h
-    if y1 > H:
-        y1 = H
+def box(x, y, w, h, c):
+    """Solid rectangle, clipped to the canvas."""
+    x0 = max(x, 0)
+    y0 = max(y, 0)
+    x1 = min(x + w, W)
+    y1 = min(y + h, H)
     if x1 <= x0 or y1 <= y0:
         return
     row = bytes(c) * (x1 - x0)
@@ -130,19 +155,19 @@ def fill_rect(x, y, w, h, c):
         fb[i:i + n] = row
 
 
-def draw_line(x0, y0, x1, y1, c):
-    """Bresenham, 1px."""
+def seg(x0, y0, x1, y1, c):
+    """One-pixel Bresenham segment."""
     dx = x1 - x0
     dy = y1 - y0
     sx = 1 if dx > 0 else -1
     sy = 1 if dy > 0 else -1
-    dx = dx if dx >= 0 else -dx
-    dy = dy if dy >= 0 else -dy
+    dx = abs(dx)
+    dy = abs(dy)
     if dx >= dy:
         err = 2 * dy - dx
         y = y0
         for k in range(dx + 1):
-            set_px(x0 + k * sx, y, c)
+            put_px(x0 + k * sx, y, c)
             if err >= 0:
                 y += sy
                 err -= 2 * dx
@@ -151,37 +176,38 @@ def draw_line(x0, y0, x1, y1, c):
         err = 2 * dx - dy
         x = x0
         for k in range(dy + 1):
-            set_px(x, y0 + k * sy, c)
+            put_px(x, y0 + k * sy, c)
             if err >= 0:
                 x += sx
                 err -= 2 * dy
             err += 2 * dx
 
 
-def thick_line(x0, y0, x1, y1, w, c):
-    dx = x1 - x0
-    dy = y1 - y0
+def seg_w(x0, y0, x1, y1, w, c):
+    """Thick segment: parallel thin ones."""
+    dx = abs(x1 - x0)
+    dy = abs(y1 - y0)
     half = w // 2
-    if (dx if dx >= 0 else -dx) >= (dy if dy >= 0 else -dy):
+    if dx >= dy:
         for k in range(-half, half + 1):
-            draw_line(x0, y0 + k, x1, y1 + k, c)
+            seg(x0, y0 + k, x1, y1 + k, c)
     else:
         for k in range(-half, half + 1):
-            draw_line(x0 + k, y0, x1 + k, y1, c)
+            seg(x0 + k, y0, x1 + k, y1, c)
 
 
-def fill_circle(cx, cy, r, c):
+def disc(cx, cy, r, c):
     for dy in range(-r, r + 1):
         dx = int((r * r - dy * dy) ** 0.5)
-        fill_rect(cx - dx, cy + dy, 2 * dx + 1, 1, c)
+        box(cx - dx, cy + dy, 2 * dx + 1, 1, c)
 
 
-def draw_circle(cx, cy, r, c):
+def ring(cx, cy, r, c):
     x, y, d = 0, r, 1 - r
     while x <= y:
         for px, py in ((x, y), (y, x), (-x, y), (y, -x),
                        (x, -y), (-y, x), (-x, -y), (-y, -x)):
-            set_px(cx + px, cy + py, c)
+            put_px(cx + px, cy + py, c)
         if d < 0:
             d += 2 * x + 3
         else:
@@ -190,8 +216,8 @@ def draw_circle(cx, cy, r, c):
         x += 1
 
 
-def fill_polygon(pts, c):
-    """Scanline fill, even-odd, deterministic."""
+def poly(pts, c):
+    """Even-odd scanline polygon fill."""
     ys = [p[1] for p in pts]
     for y in range(min(ys), max(ys) + 1):
         xs = []
@@ -203,59 +229,58 @@ def fill_polygon(pts, c):
                 xs.append(x0 + (y - y0) * (x1 - x0) / (y1 - y0))
         xs.sort()
         for i in range(0, len(xs) - 1, 2):
-            fill_rect(int(xs[i]), y, int(xs[i + 1]) - int(xs[i]) + 1, 1, c)
+            box(int(xs[i]), y, int(xs[i + 1]) - int(xs[i]) + 1, 1, c)
 
 
-def rounded_rect(x, y, w, h, r, c):
-    fill_rect(x + r, y, w - 2 * r, h, c)
-    fill_rect(x, y + r, w, h - 2 * r, c)
+def rrect(x, y, w, h, r, c):
+    box(x + r, y, w - 2 * r, h, c)
+    box(x, y + r, w, h - 2 * r, c)
     for cx, cy in ((x + r, y + r), (x + w - r - 1, y + r),
                    (x + r, y + h - r - 1), (x + w - r - 1, y + h - r - 1)):
-        fill_circle(cx, cy, r, c)
+        disc(cx, cy, r, c)
 
 
-def rounded_outline(x, y, w, h, r, width, border, fill):
-    rounded_rect(x, y, w, h, r, border)
-    rounded_rect(x + width, y + width, w - 2 * width, h - 2 * width,
-                 r - width if r > width else 0, fill)
+def edge_box(x, y, w, h, r, width, border, fill):
+    rrect(x, y, w, h, r, border)
+    inner = r - width if r > width else 0
+    rrect(x + width, y + width, w - 2 * width, h - 2 * width, inner, fill)
 
 # ------------------------------------------------------------------ text
-def norm(text):
-    """Uppercase newspaper text; fold curly quotes to plain ones."""
+def upper_text(text):
+    """Uppercase broadsheet text; fold curly quotes and dashes."""
     return (text.upper()
             .replace("’", "'").replace("‘", "'")
             .replace("–", "-").replace("—", "-"))
 
 
-def text_width(text, scale, tracking=0):
+def glyph_w(text, scale, tracking=0):
     n = len(text)
     if n == 0:
         return 0
     return n * 5 * scale + (n - 1) * (scale + tracking)
 
 
-def draw_text(x, y, text, scale, c, tracking=0):
-    """Draw text at integer scale; glyph advance is 6*scale + tracking."""
-    adv = 6 * scale + tracking
+def put_text(x, y, text, scale, c, tracking=0):
+    """Set text at integer scale; advance is 6*scale + tracking."""
+    step = 6 * scale + tracking
     cx = x
     for ch in text:
-        rows = FONT.get(ch, BLANK)
+        rows = glyph_rows(ch)
         for ry in range(7):
             row = rows[ry]
             for rx in range(5):
                 if row[rx] == "#":
-                    fill_rect(cx + rx * scale, y + ry * scale,
-                              scale, scale, c)
-        cx += adv
+                    box(cx + rx * scale, y + ry * scale, scale, scale, c)
+        cx += step
     return cx
 
 
-def wrap(text, scale, max_w, tracking=0):
+def wrap_text(text, scale, max_w, tracking=0):
     """Greedy word wrap by pixel width."""
     lines, cur = [], ""
     for word in text.split():
         trial = word if not cur else cur + " " + word
-        if text_width(trial, scale, tracking) <= max_w:
+        if glyph_w(trial, scale, tracking) <= max_w:
             cur = trial
         else:
             if cur:
@@ -266,14 +291,14 @@ def wrap(text, scale, max_w, tracking=0):
     return lines
 
 
-def fit_lines(text, scale, max_w, max_lines, tracking=0):
+def fit_text(text, scale, max_w, max_lines, tracking=0):
     """Wrap to at most max_lines lines, ellipsising the last one."""
-    lines = wrap(text, scale, max_w, tracking)
+    lines = wrap_text(text, scale, max_w, tracking)
     if len(lines) <= max_lines:
         return lines
     lines = lines[:max_lines]
     last = lines[-1]
-    while last and text_width(last + "...", scale, tracking) > max_w:
+    while last and glyph_w(last + "...", scale, tracking) > max_w:
         last = last[:-1].rstrip()
         if " " in last:
             last = last[:last.rfind(" ")].rstrip()
@@ -282,108 +307,104 @@ def fit_lines(text, scale, max_w, max_lines, tracking=0):
 
 
 # ------------------------------------------------------------------ icons
-def icon(kind, x, y, s, bg):
-    """Flat pictogram inside a coloured square, s = 52."""
-    rounded_rect(x, y, s, s, 10, bg)
+def pict(kind, x, y, s, bg):
+    """Flat pictogram in a coloured square, s = 52."""
+    rrect(x, y, s, s, 10, bg)
     cx, cy = x + s // 2, y + s // 2
     if kind == "chart":  # Anthropic IPO: rising chart
-        fill_rect(x + 10, y + s - 14, s - 20, 2, WHITE)
+        box(x + 10, y + s - 14, s - 20, 2, WHITE)
         pts = [(x + 11, y + 38), (x + 19, y + 34), (x + 27, y + 36),
                (x + 35, y + 26), (x + 43, y + 16)]
         for i in range(len(pts) - 1):
-            thick_line(pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1],
-                       4, WHITE)
-        fill_polygon([(43 + x, 16 + y - 6), (43 + x + 8, 16 + y + 2),
-                      (43 + x - 2, 16 + y + 4)], WHITE)
+            seg_w(pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1], 4, WHITE)
+        poly([(x + 43, y + 10), (x + 51, y + 18), (x + 41, y + 20)], WHITE)
     elif kind == "radar":  # US-Iran: radar sweeps
         for r in (9, 16, 23):
-            draw_circle(cx, cy, r, WHITE)
-        fill_circle(cx, cy, 4, RED)
-        thick_line(cx, cy, cx + 16, cy - 16, 3, WHITE)
-        fill_rect(cx - 1, cy - 23, 2, 8, WHITE)
+            ring(cx, cy, r, WHITE)
+        disc(cx, cy, 4, RED)
+        seg_w(cx, cy, cx + 16, cy - 16, 3, WHITE)
+        box(cx - 1, cy - 23, 2, 8, WHITE)
     elif kind == "warn":  # Gaza: warning triangle
-        fill_polygon([(cx, y + 8), (x + s - 9, y + s - 10),
-                      (x + 9, y + s - 10)], WHITE)
-        draw_text(cx - 7, cy - 2, "!", 3, RED)
+        poly([(cx, y + 8), (x + s - 9, y + s - 10),
+              (x + 9, y + s - 10)], WHITE)
+        put_text(cx - 7, cy - 2, "!", 3, RED)
     elif kind == "bridge":  # Crimea bridge
-        fill_rect(x + 8, y + s - 13, s - 16, 3, WHITE)
+        box(x + 8, y + s - 13, s - 16, 3, WHITE)
         for px in range(cx - 17, cx + 18):
             t = (px - cx) / 17.0
             py = (y + s - 13) - int(13 * (1 - t * t) ** 0.5)
-            set_px(px, py, WHITE)
-            set_px(px, py + 1, WHITE)
+            put_px(px, py, WHITE)
+            put_px(px, py + 1, WHITE)
         for px in (x + 15, cx - 1, x + s - 18):
-            fill_rect(px, y + 28, 3, 12, WHITE)
-        fill_rect(cx - 8, y + 12, 16, 3, RED)
-    elif kind == "bank":  # EU loan: bank / columns
-        fill_polygon([(x + 7, y + 20), (cx, y + 9), (x + s - 7, y + 20)],
-                     WHITE)
+            box(px, y + 28, 3, 12, WHITE)
+        box(cx - 8, y + 12, 16, 3, RED)
+    elif kind == "bank":  # EU loan: bank and columns
+        poly([(x + 7, y + 20), (cx, y + 9), (x + s - 7, y + 20)], WHITE)
         for px in (x + 13, x + 24, x + 35):
-            fill_rect(px, y + 24, 4, 13, WHITE)
-        fill_rect(x + 8, y + s - 13, s - 16, 4, WHITE)
-    elif kind == "sat":  # Voyager 1: satellite + signal rings
-        fill_rect(cx - 12, cy - 4, 24, 8, WHITE)
-        fill_rect(cx - 4, cy - 11, 8, 22, GOLD)
-        fill_rect(x + 6, cy - 3, 8, 6, WHITE)
-        fill_rect(x + s - 14, cy - 3, 8, 6, WHITE)
-        draw_circle(cx, cy, 20, GOLD)
-        draw_circle(cx, cy, 24, GOLD)
+            box(px, y + 24, 4, 13, WHITE)
+        box(x + 8, y + s - 13, s - 16, 4, WHITE)
+    elif kind == "sat":  # Voyager 1: satellite and signal rings
+        box(cx - 12, cy - 4, 24, 8, WHITE)
+        box(cx - 4, cy - 11, 8, 22, GOLD)
+        box(x + 6, cy - 3, 8, 6, WHITE)
+        box(x + s - 14, cy - 3, 8, 6, WHITE)
+        ring(cx, cy, 20, GOLD)
+        ring(cx, cy, 24, GOLD)
     elif kind == "storm":  # Cyclone Akvan: spiral
         for r in (6, 12, 18):
-            draw_circle(cx, cy, r, WHITE)
-        fill_circle(cx, cy, 4, WHITE)
-        thick_line(cx, cy, cx + 18, cy - 6, 3, WHITE)
-        thick_line(cx - 6, cy + 14, cx + 6, cy + 18, 3, WHITE)
+            ring(cx, cy, r, WHITE)
+        disc(cx, cy, 4, WHITE)
+        seg_w(cx, cy, cx + 18, cy - 6, 3, WHITE)
+        seg_w(cx - 6, cy + 14, cx + 6, cy + 18, 3, WHITE)
     elif kind == "scales":  # Jeffries / Speaker: scales of the house
-        fill_rect(cx - 2, y + 9, 4, 30, WHITE)
-        fill_rect(x + 12, y + 13, s - 24, 4, WHITE)
+        box(cx - 2, y + 9, 4, 30, WHITE)
+        box(x + 12, y + 13, s - 24, 4, WHITE)
         for sx in (x + 14, x + s - 14):
-            fill_rect(sx - 1, y + 17, 3, 11, WHITE)
-            fill_polygon([(sx - 9, y + 28), (sx + 9, y + 28),
-                          (sx, y + 41)], WHITE)
-        fill_rect(x + 14, y + s - 12, s - 28, 4, WHITE)
+            box(sx - 1, y + 17, 3, 11, WHITE)
+            poly([(sx - 9, y + 28), (sx + 9, y + 28), (sx, y + 41)], WHITE)
+        box(x + 14, y + s - 12, s - 28, 4, WHITE)
 
 
-def draw_hero_scene(x, y, w, h):
-    """Vice City skyline at dusk behind a game controller."""
-    rounded_rect(x, y, w, h, 12, PANEL)
-    # dusk sky bands
-    fill_rect(x, y, w, 40, (58, 28, 66))
-    fill_rect(x, y + 40, w, 30, (120, 52, 60))
-    fill_rect(x, y + 70, w, 26, (214, 130, 60))
-    # sun
-    fill_circle(x + w - 52, y + 62, 20, (255, 214, 120))
-    # skyline silhouettes, two depths
+def hero_scene(x, y, w, h):
+    """Vice City skyline at dusk, with a game controller in front."""
+    rrect(x, y, w, h, 12, PANEL)
+    # Dusk sky bands.
+    box(x, y, w, 40, (58, 28, 66))
+    box(x, y + 40, w, 30, (120, 52, 60))
+    box(x, y + 70, w, 26, (214, 130, 60))
+    # Low sun.
+    disc(x + w - 52, y + 62, 20, (255, 214, 120))
+    # Two depths of skyline.
     base = y + h - 118
     far = [(0, 46), (26, 34), (52, 58), (86, 30), (118, 52), (150, 38),
            (182, 60), (214, 36), (246, 54), (278, 42), (310, 58)]
     for bx, bh in far:
-        fill_rect(x + bx, base + 58 - bh, 24, bh, (30, 44, 74))
+        box(x + bx, base + 58 - bh, 24, bh, (30, 44, 74))
     near = [(8, 78), (44, 96), (82, 66), (120, 104), (160, 72),
             (198, 92), (238, 64), (274, 86), (308, 70)]
     for bx, bh in near:
-        fill_rect(x + bx, base + 118 - bh, 30, bh, (16, 26, 48))
-    # lit windows
+        box(x + bx, base + 118 - bh, 30, bh, (16, 26, 48))
+    # Lit windows.
     for bx, bh in near:
         for wy in range(base + 118 - bh + 8, base + 110, 14):
             for wx in (x + bx + 5, x + bx + 17):
-                fill_rect(wx, wy, 4, 5, GOLD)
-    # water line + reflection
-    fill_rect(x, base + 118, w, 2, GOLD)
-    fill_rect(x + 40, base + 128, 90, 3, (214, 130, 60))
-    fill_rect(x + 180, base + 138, 120, 3, (214, 130, 60))
-    # game controller, bottom centre
+                box(wx, wy, 4, 5, GOLD)
+    # Water line and reflections.
+    box(x, base + 118, w, 2, GOLD)
+    box(x + 40, base + 128, 90, 3, (214, 130, 60))
+    box(x + 180, base + 138, 120, 3, (214, 130, 60))
+    # Game controller, bottom centre.
     cx, cy = x + w // 2, base + 74
-    rounded_rect(cx - 62, cy - 22, 124, 46, 18, WHITE)
-    fill_circle(cx - 38, cy - 4, 9, NAVY2)
-    fill_circle(cx + 38, cy - 4, 9, NAVY2)
-    fill_rect(cx - 8, cy - 14, 5, 16, NAVY2)
-    fill_rect(cx - 13, cy - 9, 15, 5, NAVY2)
+    rrect(cx - 62, cy - 22, 124, 46, 18, WHITE)
+    disc(cx - 38, cy - 4, 9, NAVY2)
+    disc(cx + 38, cy - 4, 9, NAVY2)
+    box(cx - 8, cy - 14, 5, 16, NAVY2)
+    box(cx - 13, cy - 9, 15, 5, NAVY2)
     for dx, dy, col in ((30, -12, RED), (40, -4, GREEN),
                         (30, 4, GOLD), (20, -4, TEAL)):
-        fill_circle(cx + dx, cy + dy, 4, col)
+        disc(cx + dx, cy + dy, 4, col)
 
-# ------------------------------------------------------------------ content
+# ------------------------------------------------------------------ stories
 # Verified brief for Thursday 19 November 2026. Sources: AP / People /
 # Gulf Business (GTA VI launch); FinanceFeeds, ZeroHedge, The Desk,
 # TradingView (Anthropic IPO); SimpleLife, Gulf Business, Cultura
@@ -400,10 +421,10 @@ TILES = [
     ("radar", "MIDDLE EAST", RED,
      "US and Iran trade fire in the Gulf",
      "US hit Qeshm Island site; Iran struck bases in Bahrain, Kuwait."),
-    ("warn", "MIDDLE EAST", (122, 44, 44),
+    ("warn", "MIDDLE EAST", BROWN,
      "Israeli troops push into central Gaza",
      "Rare ground operation displaces families in a ceasefire zone."),
-    ("bridge", "EUROPE", (90, 60, 20),
+    ("bridge", "EUROPE", OCHRE,
      "Crimea bridge hit again",
      "Traffic halted after a new attack on the key supply route."),
     ("bank", "EUROPE", NAVY2,
@@ -415,7 +436,7 @@ TILES = [
     ("storm", "ASIA", TEAL,
      "Cyclone Akvan nears India's east coast",
      "Landfall expected between Machilipatnam and Puri."),
-    ("scales", "POLITICS", (70, 70, 110),
+    ("scales", "POLITICS", SLATE,
      "Jeffries set to be first Black Speaker",
      "Democrats nominate Hakeem Jeffries to lead the House."),
 ]
@@ -427,7 +448,7 @@ BRIEF = [
 ]
 
 
-# ------------------------------------------------------------------ PNG writer
+# ------------------------------------------------------------------ PNG out
 def _chunk(tag, data):
     out = struct.pack(">I", len(data)) + tag + data
     out += struct.pack(">I", binascii.crc32(tag + data) & 0xFFFFFFFF)
@@ -447,74 +468,90 @@ def write_png(path):
         f.write(png)
 
 
-# ------------------------------------------------------------------ page
-def main():
-    fb[:] = bytes(PAPER) * (W * H)
+# ------------------------------------------------------------------ the page
+MARGIN = 24
+MAST_H = 104
+HERO_H = 302
+GRID_TOP = 432
+TILE_W = 482
+TILE_H = 110
+TILE_GAP = 12
+FOOT_TOP = 916
+FOOT_H = 92
 
-    # ---- Masthead ------------------------------------------------------
-    fill_rect(0, 0, W, 104, NAVY)
-    fill_rect(0, 104, W, 4, GOLD)
-    draw_text(28, 14, norm("The World in One Page"), 3, WHITE, tracking=2)
-    draw_text(28, 42, norm("Thursday 19 November 2026"), 6, WHITE)
-    right = norm("One day - One page")
-    draw_text(W - 28 - text_width(right, 2), 22, right, 2, GOLD)
 
-    # ---- Hero: GTA VI --------------------------------------------------
-    hx, hy, hw, hh = 24, 118, 976, 302
-    rounded_rect(hx, hy, hw, hh, 12, NAVY2)
-    draw_text(hx + 24, hy + 16, norm("Top story - Culture"), 2, GOLD)
-    headline = norm("GTA VI is out at last - "
-                    "13-year wait ends")
+def masthead():
+    box(0, 0, W, MAST_H, NAVY)
+    box(0, MAST_H, W, 4, GOLD)
+    put_text(MARGIN + 4, 14, upper_text("The World in One Page"), 3, WHITE,
+             tracking=2)
+    put_text(MARGIN + 4, 42, upper_text("Thursday 19 November 2026"), 6,
+             WHITE)
+    tag = upper_text("One day - One page")
+    put_text(W - MARGIN - 4 - glyph_w(tag, 2), 22, tag, 2, GOLD)
+
+
+def hero():
+    hx, hy = MARGIN, MAST_H + 14
+    hw, hh = W - 2 * MARGIN, HERO_H
+    rrect(hx, hy, hw, hh, 12, NAVY2)
+    put_text(hx + 24, hy + 16, upper_text("Top story - Culture"), 2, GOLD)
+    head = upper_text("GTA VI is out at last - 13-year wait ends")
     y = hy + 42
-    for ln in fit_lines(headline, 4, 580, 3):
-        draw_text(hx + 24, y, ln, 4, WHITE)
+    for ln in fit_text(head, 4, 580, 3):
+        put_text(hx + 24, y, ln, 4, WHITE)
         y += 34
-    summary = norm("Rockstar's Grand Theft Auto VI launches worldwide at "
-                   "midnight local time on PS5 and Xbox, $79.99, after "
-                   "two delays. Metacritic 99 from 140+ reviews; 12m "
-                   "preorders worth $1.18bn.")
+    body = upper_text(
+        "Rockstar's Grand Theft Auto VI launches worldwide at midnight "
+        "local time on PS5 and Xbox, $79.99, after two delays. Metacritic "
+        "99 from 140+ reviews; 12m preorders worth $1.18bn.")
     y = hy + 148
-    for ln in fit_lines(summary, 3, 580, 6):
-        draw_text(hx + 24, y, ln, 3, LIGHT)
+    for ln in fit_text(body, 3, 580, 6):
+        put_text(hx + 24, y, ln, 3, LIGHT)
         y += 25
-    # Hero scene: Vice City dusk skyline + controller
-    draw_hero_scene(hx + 620, hy + 16, hw - 644, hh - 32)
-    draw_text(hx + 648, hy + 28, norm("Vice City returns"), 2, GOLD)
-    draw_text(hx + 648, hy + 48, norm("Jason and Lucia star"), 2, WHITE)
+    hero_scene(hx + 620, hy + 16, hw - 644, hh - 32)
+    put_text(hx + 648, hy + 28, upper_text("Vice City returns"), 2, GOLD)
+    put_text(hx + 648, hy + 48, upper_text("Jason and Lucia star"), 2, WHITE)
 
-    # ---- Story grid: 2 cols x 4 rows ----------------------------------
-    gx, gy = 24, 432
-    tw, th, gap = 482, 110, 12
+
+def story_grid():
     for i, (kind, tag, color, head, summ) in enumerate(TILES):
-        x = gx + (i % 2) * (tw + gap)
-        y = gy + (i // 2) * (th + gap)
-        rounded_outline(x, y, tw, th, 10, 1, RULE, TILE)
-        icon(kind, x + 12, y + 12, 52, color)
+        x = MARGIN + (i % 2) * (TILE_W + TILE_GAP)
+        y = GRID_TOP + (i // 2) * (TILE_H + TILE_GAP)
+        edge_box(x, y, TILE_W, TILE_H, 10, 1, RULE, TILE)
+        pict(kind, x + 12, y + 12, 52, color)
         tx = x + 76
-        draw_text(tx, y + 8, norm(tag), 2, color)
-        hlines = fit_lines(norm(head), 3, tw - 88, 2)
+        put_text(tx, y + 8, upper_text(tag), 2, color)
         hy2 = y + 26
-        for ln in hlines:
-            draw_text(tx, hy2, ln, 3, INK)
+        for ln in fit_text(upper_text(head), 3, TILE_W - 88, 2):
+            put_text(tx, hy2, ln, 3, INK)
             hy2 += 24
-        slines = fit_lines(norm(summ), 2, tw - 88, 2)
         sy = hy2 + 4
-        for ln in slines:
-            draw_text(tx, sy, ln, 2, MUTED)
+        for ln in fit_text(upper_text(summ), 2, TILE_W - 88, 2):
+            put_text(tx, sy, ln, 2, MUTED)
             sy += 15
 
-    # ---- Footer: also in brief ----------------------------------------
-    fx, fy, fw, fh = 24, 916, 976, 92
-    rounded_rect(fx, fy, fw, fh, 10, NAVY)
-    draw_text(fx + 20, fy + 12, norm("Also in brief"), 2, GOLD)
-    date = norm("19 Nov 2026")
-    draw_text(W - 28 - text_width(date, 2), fy + 12, date, 2, GOLD)
+
+def footer():
+    fx, fy = MARGIN, FOOT_TOP
+    fw, fh = W - 2 * MARGIN, FOOT_H
+    rrect(fx, fy, fw, fh, 10, NAVY)
+    put_text(fx + 20, fy + 12, upper_text("Also in brief"), 2, GOLD)
+    date = upper_text("19 Nov 2026")
+    put_text(W - MARGIN - 4 - glyph_w(date, 2), fy + 12, date, 2, GOLD)
     by = fy + 34
     for item in BRIEF:
-        for ln in fit_lines(norm("•  " + item), 2, fw - 40, 1):
-            draw_text(fx + 20, by, ln, 2, WHITE)
+        for ln in fit_text(upper_text("•  " + item), 2, fw - 40, 1):
+            put_text(fx + 20, by, ln, 2, WHITE)
             by += 18
 
+
+def main():
+    fb[:] = bytes(PAPER) * (W * H)
+    masthead()
+    hero()
+    story_grid()
+    footer()
     out = os.environ.get("MAKEFUN_OUTPUT_DIR", "/output")
     os.makedirs(out, exist_ok=True)
     write_png(os.path.join(out, "entry.png"))
