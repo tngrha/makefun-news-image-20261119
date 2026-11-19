@@ -412,7 +412,7 @@ def hero_scene(x, y, w, h):
 # News, Cultura Colectiva / Reuters (Gaza ground operation, Crimea
 # bridge); Jagran Josh, Disclosure News / FT (EU Ukraine loan,
 # Voyager 1, Cyclone Akvan); Newsmriti / NDTV, BBC (Jeffries);
-# SimpleLife (Fed minutes, Trump-Xi-Putin Shenzhen talks); Jagran
+# SimpleLife (Fed/Waller, Trump-Xi-Putin Shenzhen talks); Jagran
 # Josh (Nvidia acting CEO, US senators on AI cyber threats).
 TILES = [
     ("chart", "MARKETS", GREEN_D,
@@ -432,7 +432,7 @@ TILES = [
      "Repayable from Russian reparations."),
     ("sat", "SCIENCE", PURPLE,
      "Voyager 1 reaches one light-day",
-     "After 48 years in space, NASA confirms the milestone today."),
+     "After 49 years in space, NASA confirms the milestone today."),
     ("storm", "ASIA", TEAL,
      "Cyclone Akvan nears India's east coast",
      "Landfall expected between Machilipatnam and Puri."),
@@ -444,7 +444,7 @@ TILES = [
 BRIEF = [
     "Nvidia: acting CEO promises earlier pay raises; H-chips to China halted.",
     "Trump, Xi and Putin to hold trilateral talks in Shenzhen at APEC.",
-    "Fed minutes: most officials see more rate hikes if inflation stays high.",
+    "Fed's Waller pushes a half-point rate hike in December.",
 ]
 
 
@@ -504,7 +504,7 @@ def hero():
     body = upper_text(
         "Rockstar's Grand Theft Auto VI launches worldwide at midnight "
         "local time on PS5 and Xbox, $79.99, after two delays. Metacritic "
-        "99 from 140+ reviews; 12m preorders worth $1.18bn.")
+        "99 from 140+ reviews; 17m preorders worth $1.65bn.")
     y = hy + 148
     for ln in fit_text(body, 3, 580, 6):
         put_text(hx + 24, y, ln, 3, LIGHT)
